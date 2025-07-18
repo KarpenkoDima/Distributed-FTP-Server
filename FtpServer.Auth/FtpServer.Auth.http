@@ -1,0 +1,6 @@
+@FtpServer.Auth_HostAddress = http://localhost:5160
+
+GET {{FtpServer.Auth_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
