@@ -114,7 +114,7 @@ public class BasicFtpServer
             await SendResponseAsync(writer, "220", "Welcome to Basic FTP Server v1.0");
 
             // Main cycle commands handler
-            await ProcessCommandsAsync(session);
+            await ProcessCommandAsync(session);
         }
         catch (Exception ex)
         {
@@ -128,7 +128,7 @@ public class BasicFtpServer
         }
     }
 
-    private async Task ProcessCommandsAsync(FtpSession session)
+    private async Task ProcessCommandAsync(FtpSession session)
     {
         while (true)
         {
