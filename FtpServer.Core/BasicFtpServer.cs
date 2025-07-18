@@ -7,6 +7,7 @@ using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml;
 using static System.Collections.Specialized.BitVector32;
 
 namespace FtpServer.Core
@@ -55,17 +56,21 @@ namespace FtpServer.Core
                 using var reader = new StreamReader(networkStream, Encoding.UTF8);
 
                 // Create ftp user
-                var ftpUser = new FtpUser
-                {                    
-                    ClientEndPoint = clientEndPoint ?? "unknown",
-                   
+                var session = new FtpSession
+                {
+                    SessionId = Guid.NewGuid().ToString()[..8],
+                    ClientEndpoint = clientEndPoint ?? "unknown",
+                    NetworkStream = networkStream,
+                    Reader = reader,
+                    Writer = writer
+
                 };
 
                 // Send welcom message to cleint
                 await SendResponseAsync(writer, "220", "Welcome to Basic FTP Server v1.0.\r\n Input \"USER demo\" or \"USER test\" and any password");
 
                 // Main cycle handle of commands
-                await ProcessCommandAsync(reader, writer, ftpUser);
+                await ProcessCommandAsync(session);
 
             }
             catch (Exception ex)
@@ -80,17 +85,17 @@ namespace FtpServer.Core
             }
         }
 
-        private async Task ProcessCommandAsync(StreamReader reader, StreamWriter writer, FtpUser ftpUser)
+        private async Task ProcessCommandAsync(FtpSession session)
         {
             while (true)
             {
                 try
                 {
-                    var command = await reader.ReadLineAsync();
+                    var command = await session.Reader.ReadLineAsync();
 
                     if (command == null)
                     {
-                        Console.WriteLine($"🔌 Client {ftpUser.ClientEndPoint} disconnected");
+                        Console.WriteLine($"🔌 Client {session.ClientEndpoint} disconnected");
                         break;
                     }
 
@@ -98,24 +103,24 @@ namespace FtpServer.Core
                     if (string.IsNullOrEmpty(command))
                         continue;
 
-                    Console.WriteLine($"📨 [{ftpUser.ClientEndPoint}] Command: {command}");
+                    Console.WriteLine($"📨 [{session.SessionId}] Command: {command}");
 
-                    var response = await HandleCommandAsync(command, ftpUser);
-                    await SendResponseAsync(writer, response.Code.ToString(), response.Message);
+                    var response = await HandleCommandAsync(command, session);
+                    await SendResponseAsync(session.Writer, response.Code.ToString(), response.Message);
 
                     // Если клиент отправил QUIT, завершаем соединение
                     if (command.StartsWith("QUIT", StringComparison.OrdinalIgnoreCase))
                         break;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-
-                    throw;
+                    Console.WriteLine($"❌ Error processing command for {session.ClientEndpoint}: {ex.Message}");
+                    break;
                 }
             }
         }
 
-        private async Task<FtpResponse> HandleCommandAsync(string commandLine, FtpUser ftpUser)
+        private async Task<FtpResponse> HandleCommandAsync(string commandLine, FtpSession session)
         {
             var parts = commandLine.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             var command = parts[0].ToUpper();
@@ -123,40 +128,40 @@ namespace FtpServer.Core
 
             return command switch
             {
-                "USER" => await HandleUserAsync(args, ftpUser),
-                "PASS" => await HandlePassAsync(args, ftpUser),
+                "USER" => await HandleUserAsync(args, session),
+                "PASS" => await HandlePassAsync(args, session),
                 "QUIT" => new FtpResponse(221, $"Goodbye"),
                 _ => new FtpResponse(502, $"Command '{command}' not implemented")
             };
         }
 
-        private async Task<FtpResponse> HandleUserAsync(string username, FtpUser ftpUser)
+        private async Task<FtpResponse> HandleUserAsync(string username, FtpSession session)
         {
             if (string.IsNullOrEmpty(username))
                 return new FtpResponse(501, $"Username required");
 
-            ftpUser.Username = username;
-            Console.WriteLine($"👤 [{ftpUser.ClientEndPoint}] User: {username}");
+            session.Username = username;
+            Console.WriteLine($"👤 [{session.SessionId}] User: {username}");
 
             return new FtpResponse(331, $"Password required");
         }
-        private async Task<FtpResponse> HandlePassAsync(string password, FtpUser ftpUser)
+        private async Task<FtpResponse> HandlePassAsync(string password, FtpSession session)
         {
-            if (string.IsNullOrEmpty(ftpUser.Username))
+            if (string.IsNullOrEmpty(session.Username))
                 return new FtpResponse(503, $"Login with USER first");
 
             // Простая проверка: любой пароль принимается для demo/test пользователей
-            if (ftpUser.Username.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
-                ftpUser.Username.Equals("test", StringComparison.OrdinalIgnoreCase))
+            if (session.Username.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
+                session.Username.Equals("test", StringComparison.OrdinalIgnoreCase))
             {
-                ftpUser.IsAuthenticated = true;
-                
+                session.IsAuthenticated = true;
+                session.CurrentDirectory = "/";
 
-                Console.WriteLine($"✅ [{ftpUser.ClientEndPoint}] Authentication successful for {ftpUser.Username}");
+                Console.WriteLine($"✅ [{session.SessionId}] Authentication successful for {session.Username}");
                 return new FtpResponse(230, $"Login successful");
             }
 
-            Console.WriteLine($"❌ [{ftpUser.ClientEndPoint}] Authentication failed for {ftpUser.Username}");
+            Console.WriteLine($"❌ [{session.SessionId}] Authentication failed for {session.Username}");
             return new FtpResponse(530, $"Login incorrect");
         }
 
@@ -174,11 +179,18 @@ namespace FtpServer.Core
         }
     }
 
-    public class FtpUser
+    public class FtpSession
     {
-        public string ClientEndPoint { get; set; } = "";
+        public string SessionId { get; set; } = "";
+        public string ClientEndpoint { get; set; } = "";
         public string Username { get; set; } = "";
         public bool IsAuthenticated { get; set; }
+        public string CurrentDirectory { get; set; } = "/";
+
+        // Networking
+        public NetworkStream NetworkStream { get; set; } = null!;
+        public StreamReader Reader { get; set; } = null!;
+        public StreamWriter Writer { get; set; } = null!;
     }
 
     public record FtpResponse(int Code, string Message);
