@@ -183,9 +183,9 @@ public class BasicFtpServer
             "TYPE" => HandleType(args, session),
             "PASV" => await HandlePasvAsync(session),
             "LIST" => await HandleListAsync(session),
-            /*"STOR" => await HandleStorAsync(args, session),
+            "STOR" => await HandleStorAsync(args, session),
             "RETR" => await HandleRetrAsync(args, session),
-            "SIZE" => HandleSize(session),*/
+            "SIZE" => HandleSize(args, session),
 
             _ => new FtpResponse(502, $"Command '{command}' not implemented")
         };
@@ -232,15 +232,21 @@ public class BasicFtpServer
 
     private FtpResponse HandleCwd(string path, FtpSession session)
     {
-        if (!session.IsAuthenticated)
+        if (false == session.IsAuthenticated)
             return new FtpResponse(530, "Not logged in");
 
         if (string.IsNullOrEmpty(path))
             return new FtpResponse(501, "Path required");
 
-        // Simple navigation - set any path
-        session.CurrentDirectory = path.StartsWith('/') ? path : $"{session.CurrentDirectory.TrimEnd('/')}/{path}";
+        var newPath = GetAbsolutePath(path, session.CurrentDirectory);
+        var physicalPath = MapVirtualToPhysical(newPath, session.RootDirectory);
 
+        if (false == Directory.Exists(physicalPath))
+        {
+            return new FtpResponse(550, "Directory not found");
+        }
+
+        session.CurrentDirectory = newPath;
         Console.WriteLine($"📁 [{session.SessionId}] Changed directory to: {session.CurrentDirectory}");
         return new FtpResponse(250, "Directory changed successfully");
     }
@@ -252,7 +258,7 @@ public class BasicFtpServer
 
     private FtpResponse HandleType(string type, FtpSession session)
     {
-        if (!session.IsAuthenticated)
+        if (false == session.IsAuthenticated)
             return new FtpResponse(530, "Not logged in");
 
         session.TransferType = type.ToUpper() switch
@@ -317,7 +323,6 @@ public class BasicFtpServer
         {
             var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
             
-
             // Send response that beginning to send
             await SendResponseAsync(session.Writer, "150", "Opening data connection for directory list");
             Console.WriteLine($"📡 [{session.SessionId}] Waiting for data connection on port {((IPEndPoint)session.DataListener.LocalEndpoint).Port} for LIST command...");
@@ -338,11 +343,11 @@ public class BasicFtpServer
                         var isDirectory = Directory.Exists(entry);
                         var name = Path.GetFileName(entry);
                         var size = isDirectory ? 0 : info.Length;
-                        var modified = info.LastWriteTime.ToString("MMM dd HH:mm");
+                        //var modified = info.LastWriteTime.ToString("MMM dd HH:mm");
 
                         // Simple UNIX-style listing
                         var permissions = isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-                        var listLine = $"{permissions} 1 user group {size,10} {modified} {name}";
+                        var listLine = $"{permissions} 1 user group {size,10} {name}";
 
                         await dataWriter.WriteLineAsync(listLine);
                         Console.WriteLine($"📄 [{session.SessionId}] Listed: {name} ({(isDirectory ? "DIR" : size + " bytes")})");
@@ -363,6 +368,142 @@ public class BasicFtpServer
             session.DataListener = null;
         }
     }
+
+    private async Task<FtpResponse> HandleStorAsync(string filename, FtpSession session)
+    {
+        if (false == session.IsAuthenticated)
+            return new FtpResponse(530, "Not logged in");
+
+        if (string.IsNullOrEmpty(filename))
+            return new FtpResponse(501, "Filename required");
+
+        if (session.DataListener == null)
+            return new FtpResponse(425, "Use PASV first");
+
+        try
+        {
+            var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+            var filepath = Path.Combine(physicalPath, filename);
+
+            await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
+
+            // request data connection
+            var dataClient = await session.DataListener.AcceptTcpClientAsync();
+            Console.WriteLine($"📡 [{session.SessionId}] Data connection established for STOR {filename}");
+
+            using(dataClient)
+                using(var dataStream = dataClient.GetStream())
+                using(var fileStream = File.Create(filepath))
+            {
+                await dataStream.CopyToAsync(fileStream);
+                Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+            }
+
+            return new FtpResponse(226, "Transfer completed");
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error in STOR command: {ex.Message}");
+            return new FtpResponse(550, "Failed to store file");
+        }
+        finally 
+        {
+            session.DataListener?.Start();
+            session.DataListener = null;
+        }
+    }
+
+    private async Task<FtpResponse> HandleRetrAsync(string filename, FtpSession session)
+    {
+        if (false == session.IsAuthenticated)
+            return new FtpResponse(530, "Not logged in");
+
+        if (string.IsNullOrEmpty(filename))
+            return new FtpResponse(501, "Filename required");
+
+        if (session.DataListener == null)
+            return new FtpResponse(425, "Use PASV first");
+
+        try
+        {
+            var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+            var filepath = Path.Combine(physicalPath, filename);
+
+            if (false == File.Exists(filepath))
+                return new FtpResponse(550, "File not found");
+
+            await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
+
+            // request data connection
+            var dataClient = await session.DataListener.AcceptTcpClientAsync();
+            Console.WriteLine($"📡 [{session.SessionId}] Data connection established for RETR {filename}");
+
+            using (dataClient)
+            using (var dataStream = dataClient.GetStream())
+            using (var fileStream = File.OpenRead(filepath))
+            {
+                await fileStream.CopyToAsync(dataStream);
+                Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+            }
+
+            return new FtpResponse(226, "Transfer completed");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error in RETR command: {ex.Message}");
+            return new FtpResponse(550, "Failed to retrieve file");
+        }
+        finally
+        {
+            session.DataListener?.Stop();
+            session.DataListener = null;
+        }
+    }
+
+    private FtpResponse HandleSize(string filename, FtpSession session)
+    {
+        if (false == session.IsAuthenticated)
+            return new FtpResponse(530, "Not logged in");
+
+        if (string.IsNullOrEmpty(filename))
+            return new FtpResponse(501, "Filename required");
+
+        try
+        {
+            var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+            var filePath = Path.Combine(physicalPath, filename);
+
+            if (false == File.Exists(filePath))
+                return new FtpResponse(550, "File not found");
+
+            var fileInfo = new FileInfo(filePath);
+            return new FtpResponse(213, "File not found");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"❌ Error in SIZE command: {ex.Message}");
+            return new FtpResponse(550, "Failed to get file size");
+        }
+
+    }
+
+    private string GetAbsolutePath(string path, string currentDir)
+    {
+        if (path.StartsWith('/'))
+        {
+            return path;
+        }
+
+        if (path == "..")
+        {
+            var parts = currentDir.TrimEnd('/').Split('/');
+            return parts.Length > 1 ? string.Join("/", parts[..^1]) : "/";
+        }
+
+        return Path.Combine(currentDir, path).Replace('\\', '/');
+    }
+
     private async Task SendResponseAsync(StreamWriter writer, string code, string message)
     {
         var response = $"{code} {message}";
