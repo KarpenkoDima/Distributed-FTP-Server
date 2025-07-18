@@ -62,7 +62,7 @@ namespace FtpServer.Core
                 };
 
                 // Send welcom message to cleint
-                await SendResponseAsync(writer, "220 Welcome to Basic FTP Server v1.0.\r\n Input \"USER demo\" or \"USER test\" and any password");
+                await SendResponseAsync(writer, "220", "Welcome to Basic FTP Server v1.0.\r\n Input \"USER demo\" or \"USER test\" and any password");
 
                 // Main cycle handle of commands
                 await ProcessCommandAsync(reader, writer, ftpUser);
@@ -101,7 +101,7 @@ namespace FtpServer.Core
                     Console.WriteLine($"📨 [{ftpUser.ClientEndPoint}] Command: {command}");
 
                     var response = await HandleCommandAsync(command, ftpUser);
-                    await SendResponseAsync(writer, response);
+                    await SendResponseAsync(writer, response.Code.ToString(), response.Message);
 
                     // Если клиент отправил QUIT, завершаем соединение
                     if (command.StartsWith("QUIT", StringComparison.OrdinalIgnoreCase))
@@ -115,7 +115,7 @@ namespace FtpServer.Core
             }
         }
 
-        private async Task<string> HandleCommandAsync(string commandLine, FtpUser ftpUser)
+        private async Task<FtpResponse> HandleCommandAsync(string commandLine, FtpUser ftpUser)
         {
             var parts = commandLine.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             var command = parts[0].ToUpper();
@@ -125,25 +125,25 @@ namespace FtpServer.Core
             {
                 "USER" => await HandleUserAsync(args, ftpUser),
                 "PASS" => await HandlePassAsync(args, ftpUser),
-                "QUIT" => "221 Goodbye",
-                _ => $"502 Command '{command}' not implemented"
+                "QUIT" => new FtpResponse(221, $"Goodbye"),
+                _ => new FtpResponse(502, $"Command '{command}' not implemented")
             };
         }
 
-        private async Task<string> HandleUserAsync(string username, FtpUser ftpUser)
+        private async Task<FtpResponse> HandleUserAsync(string username, FtpUser ftpUser)
         {
             if (string.IsNullOrEmpty(username))
-                return $"501 Username required";
+                return new FtpResponse(501, $"Username required");
 
             ftpUser.Username = username;
             Console.WriteLine($"👤 [{ftpUser.ClientEndPoint}] User: {username}");
 
-            return $"331 Password required";
+            return new FtpResponse(331, $"Password required");
         }
-        private async Task<string> HandlePassAsync(string password, FtpUser ftpUser)
+        private async Task<FtpResponse> HandlePassAsync(string password, FtpUser ftpUser)
         {
             if (string.IsNullOrEmpty(ftpUser.Username))
-                return $"503 Login with USER first";
+                return new FtpResponse(503, $"Login with USER first");
 
             // Простая проверка: любой пароль принимается для demo/test пользователей
             if (ftpUser.Username.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
@@ -153,15 +153,16 @@ namespace FtpServer.Core
                 
 
                 Console.WriteLine($"✅ [{ftpUser.ClientEndPoint}] Authentication successful for {ftpUser.Username}");
-                return $" 230 Login successful";
+                return new FtpResponse(230, $"Login successful");
             }
 
             Console.WriteLine($"❌ [{ftpUser.ClientEndPoint}] Authentication failed for {ftpUser.Username}");
-            return $"530 Login incorrect";
+            return new FtpResponse(530, $"Login incorrect");
         }
 
-        private async Task SendResponseAsync(StreamWriter writer, string response)
+        private async Task SendResponseAsync(StreamWriter writer, string code, string message)
         {            
+            var response = $"{code} {message}";
             await writer.WriteLineAsync(response);
             Console.WriteLine($"📤 Response: {response}");
         }
@@ -179,4 +180,6 @@ namespace FtpServer.Core
         public string Username { get; set; } = "";
         public bool IsAuthenticated { get; set; }
     }
+
+    public record FtpResponse(int Code, string Message);
 }
