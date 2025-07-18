@@ -179,6 +179,9 @@ namespace FtpServer.Core
                 "PASV" => await HandlePasvAsync(session),
                 "LIST" => await HandleListAsync(session),               
                 "QUIT" => new FtpResponse(221, $"Goodbye"),
+                "STOR" => await HandleStorAsync(args, session),
+                "RETR" => await HandleRetrAsync(args, session),
+                "SIZE" => HandleSize(args, session),
                 _ => new FtpResponse(502, $"Command '{command}' not implemented")
             };
         }
@@ -359,6 +362,125 @@ namespace FtpServer.Core
                 session.DataListener?.Stop();
                 session.DataListener = null;
             }
+        }
+
+        private async Task<FtpResponse> HandleStorAsync(string filename, FtpSession session)
+        {
+            if (false == session.IsAuthenticated)
+                return new FtpResponse(530, "Not logged in");
+
+            if (string.IsNullOrEmpty(filename))
+                return new FtpResponse(501, "Filename required");
+
+            if (session.DataListener == null)
+                return new FtpResponse(425, "Use PASV first");
+
+            try
+            {
+                var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+                var filepath = Path.Combine(physicalPath, filename);
+
+                await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
+
+                // request data connection
+                var dataClient = await session.DataListener.AcceptTcpClientAsync();
+                Console.WriteLine($"📡 [{session.SessionId}] Data connection established for STOR {filename}");
+
+                using (dataClient)
+                using (var dataStream = dataClient.GetStream())
+                using (var fileStream = File.Create(filepath))
+                {
+                    await dataStream.CopyToAsync(fileStream);
+                    Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+                }
+
+                return new FtpResponse(226, "Transfer completed");
+
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error in STOR command: {ex.Message}");
+                return new FtpResponse(550, "Failed to store file");
+            }
+            finally
+            {
+                session.DataListener?.Start();
+                session.DataListener = null;
+            }
+        }
+
+        private async Task<FtpResponse> HandleRetrAsync(string filename, FtpSession session)
+        {
+            if (false == session.IsAuthenticated)
+                return new FtpResponse(530, "Not logged in");
+
+            if (string.IsNullOrEmpty(filename))
+                return new FtpResponse(501, "Filename required");
+
+            if (session.DataListener == null)
+                return new FtpResponse(425, "Use PASV first");
+
+            try
+            {
+                var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+                var filepath = Path.Combine(physicalPath, filename);
+
+                if (false == File.Exists(filepath))
+                    return new FtpResponse(550, "File not found");
+
+                await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
+
+                // request data connection
+                var dataClient = await session.DataListener.AcceptTcpClientAsync();
+                Console.WriteLine($"📡 [{session.SessionId}] Data connection established for RETR {filename}");
+
+                using (dataClient)
+                using (var dataStream = dataClient.GetStream())
+                using (var fileStream = File.OpenRead(filepath))
+                {
+                    await fileStream.CopyToAsync(dataStream);
+                    Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+                }
+
+                return new FtpResponse(226, "Transfer completed");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error in RETR command: {ex.Message}");
+                return new FtpResponse(550, "Failed to retrieve file");
+            }
+            finally
+            {
+                session.DataListener?.Stop();
+                session.DataListener = null;
+            }
+        }
+
+        private FtpResponse HandleSize(string filename, FtpSession session)
+        {
+            if (false == session.IsAuthenticated)
+                return new FtpResponse(530, "Not logged in");
+
+            if (string.IsNullOrEmpty(filename))
+                return new FtpResponse(501, "Filename required");
+
+            try
+            {
+                var physicalPath = MapVirtualToPhysical(session.CurrentDirectory, session.RootDirectory);
+                var filePath = Path.Combine(physicalPath, filename);
+
+                if (false == File.Exists(filePath))
+                    return new FtpResponse(550, "File not found");
+
+                var fileInfo = new FileInfo(filePath);
+                return new FtpResponse(213, "File not found");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error in SIZE command: {ex.Message}");
+                return new FtpResponse(550, "Failed to get file size");
+            }
+
         }
 
         private string MapVirtualToPhysical(string virtualPath, string rootDir)
