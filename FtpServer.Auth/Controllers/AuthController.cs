@@ -1,7 +1,7 @@
 ﻿using FtpServer.Auth.Models;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FtpServer.Auth;
+namespace FtpServer.Auth.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
