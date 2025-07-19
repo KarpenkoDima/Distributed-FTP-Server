@@ -1,4 +1,5 @@
-﻿using System.Net.Http.Json;
+﻿using FtpServer.Commons.Models;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace FtpServer.Core.Services;
@@ -80,28 +81,4 @@ public class AuthHttpClient
             };
         }
     }
-}
-
- // Модели для HTTP клиента
-public class AuthRequest
-{
-    public bool IsSuccess { get; set; }
-    public string Message { get; set; } = "";
-    public string Username { get; set; } = "";
-}
-
-public class AuthResponse
-{
-    public bool IsSuccess { get; set; }
-    public string Message { get; set; } = "";
-    public User? User { get; set; }
-}
-
-public class User
-{
-    public int Id { get; set; }
-    public string Username { get; set; } = "";
-    public string PasswordHash { get; set; } = "";
-    public string Email { get; set; } = "";
-    public bool IsActive { get; set; } = true;
 }

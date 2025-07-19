@@ -1,4 +1,4 @@
-﻿using FtpServer.Auth.Models;
+﻿using FtpServer.Commons.Models;
 
 namespace FtpServer.Auth.Services;
 

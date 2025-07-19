@@ -14,4 +14,12 @@
     <PackageReference Include="Swashbuckle.AspNetCore.Swagger" Version="9.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Models\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FtpServer.Commons\FtpServer.Commons.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -1,5 +1,5 @@
-﻿using FtpServer.Auth.Models;
-using FtpServer.Auth.Services;
+﻿using FtpServer.Auth.Services;
+using FtpServer.Commons.Models;
 using Microsoft.AspNetCore.Mvc;
 
 

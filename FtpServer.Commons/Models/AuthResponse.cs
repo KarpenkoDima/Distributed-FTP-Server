@@ -1,4 +1,4 @@
-﻿namespace FtpServer.Auth.Models;
+﻿namespace FtpServer.Commons.Models;
 
 public class AuthResponse
 {

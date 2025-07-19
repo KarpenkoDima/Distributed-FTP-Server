@@ -12,4 +12,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.7" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FtpServer.Commons\FtpServer.Commons.csproj" />
+  </ItemGroup>
+
 </Project>
