@@ -1,4 +1,5 @@
-﻿using System;
+﻿using FtpServer.Core.Services;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -18,7 +19,10 @@ namespace FtpServer.Core
         private bool _isRunning;
         private string _rootDirectory;
 
-        public BasicFtpServer()
+        // AuthService
+        private readonly IHttpClientFactory _httpClientFactory;
+
+        public BasicFtpServer(IHttpClientFactory httpClientFactory)
         {
             // Create root directory for FTP server
             _rootDirectory = Path.Combine(Environment.CurrentDirectory, "ftp_root");
@@ -26,6 +30,30 @@ namespace FtpServer.Core
 
             // Createing guest directories and files
             InitializeTestFiles();
+
+            _httpClientFactory = httpClientFactory;
+        }
+
+        public async Task<bool> GetUserByusernameAsync(string username)
+        {
+            // Create HttpClient from factory
+            var httpClient = _httpClientFactory.CreateClient("AuthClient");
+            // Use it for create our AuthHttpClient
+            var authHttpClient = new AuthHttpClient(httpClient);
+
+            var authResult = await authHttpClient.GetUserByUsernameAsync(username);
+            return authResult.IsSuccess;
+        }
+
+        public async Task<bool> AuthenticateUserAsync(string username, string pasword)
+        {
+            // Create HttpClient from factory
+            var httpClient = _httpClientFactory.CreateClient("AuthClient");
+            // Use it for create our AuthHttpClient
+            var authHttpClient = new AuthHttpClient(httpClient);
+
+            var authResult = await authHttpClient.AuthenticateAsync(username, pasword);
+            return authResult.IsSuccess;
         }
 
         private void InitializeTestFiles()
@@ -190,6 +218,9 @@ namespace FtpServer.Core
         {
             if (string.IsNullOrEmpty(username))
                 return new FtpResponse(501, $"Username required");
+            bool res = await GetUserByusernameAsync(username);
+            if (false == res)
+                return new FtpResponse(530, $"Username incorrect");
 
             session.Username = username;
             Console.WriteLine($"👤 [{session.SessionId}] User: {username}");
@@ -203,8 +234,8 @@ namespace FtpServer.Core
                 return new FtpResponse(503, $"Login with USER first");
 
             // Простая проверка: любой пароль принимается для demo/test пользователей
-            if (session.Username.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
-                session.Username.Equals("test", StringComparison.OrdinalIgnoreCase))
+            bool result = await AuthenticateUserAsync(session.Username, password);
+            if (result)
             {
                 session.IsAuthenticated = true;
                 session.CurrentDirectory = "/";

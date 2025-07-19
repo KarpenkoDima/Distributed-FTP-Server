@@ -42,8 +42,8 @@ public class UserService : IUserService
     }
 
     public Task<User?> GetUserByUsernameAsync(string username)
-    {
-        var user = users.FirstOrDefault(u => u.Username == username);
+    {        
+        var user = users.FirstOrDefault(u => u.Username == username);        
         return Task.FromResult(user);
     }
 }

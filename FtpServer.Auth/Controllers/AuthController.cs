@@ -2,18 +2,19 @@
 using FtpServer.Auth.Services;
 using Microsoft.AspNetCore.Mvc;
 
+
 namespace FtpServer.Auth.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController: ControllerBase
+public class AuthController : ControllerBase
 {
 
     private IUserService _userService;
-
+   
     public AuthController(IUserService userService)
     {
-        _userService = userService;
+        _userService = userService;      
     }
 
     [HttpGet("info")]
@@ -35,11 +36,11 @@ public class AuthController: ControllerBase
         return Ok(result);
     }
 
-    [HttpGet("user/{username}")]
-    public async Task<IActionResult> GetUser(string username)
-    {
-        var user = await _userService.GetUserByUsernameAsync(username);
-
+    [HttpPost("user")]
+    public async Task<IActionResult> GetUser([FromBody] AuthRequest authRequest)
+    {       
+        var user = await _userService.GetUserByUsernameAsync(authRequest.Username);
+       
         if (user == null)
             return NotFound(new {Message="User not found"});
 
