@@ -1,4 +1,5 @@
 ﻿using FtpServer.Auth.Models;
+using FtpServer.Auth.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FtpServer.Auth.Controllers;
@@ -7,6 +8,14 @@ namespace FtpServer.Auth.Controllers;
 [Route("api/[controller]")]
 public class AuthController: ControllerBase
 {
+
+    private IUserService _userService;
+
+    public AuthController(IUserService userService)
+    {
+        _userService = userService;
+    }
+
     [HttpGet("info")]
     public IActionResult GetInfo()
     {
@@ -20,31 +29,20 @@ public class AuthController: ControllerBase
     }
 
     [HttpPost("authenticate")]
-    public IActionResult Authenticate([FromBody] AuthRequest authRequest)
+    public async Task<IActionResult> Authenticate([FromBody] AuthRequest authRequest)
     {
-        // While simple verify
-        if (authRequest.Username == "demo" || authRequest.Username == "test")
-        {
-            var user = new User
-            {
-                Id = 1,
-                Username = "demo",
-                Email = "demo@example.com",
-                IsActive = true
-            };
+       var result = await _userService.AuthenticateAsync(authRequest);
+        return Ok(result);
+    }
 
-            return Ok(new AuthResponse
-            {
-                IsSuccess = true,
-                User = user,
-                Message = "Authentication successful"
-            });
-        }
+    [HttpGet("user/{username}")]
+    public async Task<IActionResult> GetUser(string username)
+    {
+        var user = await _userService.GetUserByUsernameAsync(username);
 
-        return BadRequest(new AuthResponse
-       {
-            IsSuccess=false,
-            Message = "Invalid credentials"
-        });
+        if (user == null)
+            return NotFound(new {Message="User not found"});
+
+        return Ok(user);
     }
 }

@@ -1,8 +1,13 @@
+using FtpServer.Auth.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
 builder.Services.AddControllers();
+
+// Our service UserService
+builder.Services.AddScoped<IUserService, UserService>();
 
 builder.Services.AddEndpointsApiExplorer(); // Essential for Swagger to discover endpoints
 
