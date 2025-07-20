@@ -22,17 +22,17 @@ FtpServerMVP/
 └── FtpServer.Commons		  # Shared models/interfaces
 
 ## Начало работы
-	### Запуск проектов
+### Запуск проектов
 	
-	```bash
+```bash
 	   cd FtpServer.Core 
 	   dotnet run
-	```
+```
 	
-	```bash
+```bash
 	   cd FtpServer.Auth 
 	   dotnet run
-	```
+```
 	В FileZilla создать подключение
 	- Протокол: FTP
 	- Хост: localhost
