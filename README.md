@@ -22,8 +22,9 @@ FtpServerMVP/
 └── FtpServer.Commons		  # Shared models/interfaces
 
 ## Начало работы
-### Запуск проектов
-	
+### Запуск проектов: Тестируем запуск на разных портах:
+
+	В appsettings.json изменить номер порта 
 ```bash
 	   cd FtpServer.Core 
 	   dotnet run
@@ -33,13 +34,16 @@ FtpServerMVP/
 	   cd FtpServer.Auth 
 	   dotnet run
 ```
-	В FileZilla создать подключение
-	- Протокол: FTP
-	- Хост: localhost
-	- Шифрование: исплдьзлвать обычный FTP
-	- Пользователь: demo / test
-	- Пароль: 1
-	
+```bash
+# К серверу на порту 2121
+echo -e "USER demo\nPASS 1\nQUIT" | nc localhost 2121
+
+# К серверу на порту 2122  
+echo -e "USER demo\nPASS 1\nQUIT" | nc localhost 2122
+
+# К серверу на порту 2123
+echo -e "USER demo\nPASS 1\nQUIT" | nc localhost 2123
+```
 ## На текущий момент реализованы следующие ключевые функции, составляющие минимально жизнеспособный продукт (MVP):
 
 * **Ядро FTP-сервера (`FtpServer.Core`):**
