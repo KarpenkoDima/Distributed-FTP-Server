@@ -22,7 +22,9 @@ namespace FtpServer.Core
         // AuthService
         private readonly IHttpClientFactory _httpClientFactory;
 
-        public BasicFtpServer(IHttpClientFactory httpClientFactory)
+        private readonly ISessionManager _sessionManager;
+
+        public BasicFtpServer(IHttpClientFactory httpClientFactory, ISessionManager sessionManager)
         {
             // Create root directory for FTP server
             _rootDirectory = Path.Combine(Environment.CurrentDirectory, "ftp_root");
@@ -32,6 +34,7 @@ namespace FtpServer.Core
             InitializeTestFiles();
 
             _httpClientFactory = httpClientFactory;
+            _sessionManager = sessionManager;
         }
 
         public async Task<bool> GetUserByusernameAsync(string username)
