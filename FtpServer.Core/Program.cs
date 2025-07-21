@@ -11,6 +11,9 @@ var appConfig = builder.Configuration.AddJsonFile("appsettings.json").Build();
 builder.Services.AddHttpClient<AuthHttpClient>("AuthClient")
     .ConfigureHttpClient(client => client.BaseAddress= new Uri(appConfig["authservice"]));
 
+// Add SessionManager
+builder.Services.AddSingleton<ISessionManager, MemorySessionManager>();
+
 builder.Services.AddSingleton<BasicFtpServer>();
 
 var host = builder.Build();
