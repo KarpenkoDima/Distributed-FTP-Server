@@ -3,16 +3,24 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using FtpServer.Core.Services;
 using Microsoft.Extensions.Configuration;
+using StackExchange.Redis;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 var appConfig = builder.Configuration.AddJsonFile("appsettings.json").Build();
 
+// Add Redis connection
+builder.Services.AddSingleton<IConnectionMultiplexer>(provider =>
+{
+    var connectionString = "192.168.26.129:6379"; // While hardcode
+    return ConnectionMultiplexer.Connect(connectionString);
+});
+
 builder.Services.AddHttpClient<AuthHttpClient>("AuthClient")
     .ConfigureHttpClient(client => client.BaseAddress= new Uri(appConfig["authservice"]));
 
-// Add SessionManager
-builder.Services.AddSingleton<ISessionManager, MemorySessionManager>();
+// Change MemorySessionManager to RedisSessionManager
+builder.Services.AddSingleton<ISessionManager, RedisSessionManager>();
 
 builder.Services.AddSingleton<BasicFtpServer>();
 
