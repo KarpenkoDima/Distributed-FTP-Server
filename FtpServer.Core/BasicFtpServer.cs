@@ -243,6 +243,9 @@ namespace FtpServer.Core
                 session.IsAuthenticated = true;
                 session.CurrentDirectory = "/";
 
+                // Save session in SessionManager (Redis in future)
+                await _sessionManager.SaveSessionAsync(session);
+
                 Console.WriteLine($"✅ [{session.SessionId}] Authentication successful for {session.Username}");
                 return new FtpResponse(230, $"Login successful");
             }
