@@ -117,6 +117,7 @@ namespace FtpServer.Core
 
         private async Task HandleClientAsync(TcpClient tcpClient, string? clientEndPoint)
         {
+            FtpSession session = null;
             try
             {
                 using var networkStream = tcpClient.GetStream();
@@ -124,7 +125,7 @@ namespace FtpServer.Core
                 using var reader = new StreamReader(networkStream, new UTF8Encoding(false));
 
                 // Create ftp user
-                var session = new FtpSession
+                 session = new FtpSession
                 {
                     SessionId = Guid.NewGuid().ToString()[..8],
                     ClientEndpoint = clientEndPoint ?? "unknown",
@@ -151,6 +152,10 @@ namespace FtpServer.Core
             }
             finally
             {
+                if (session != null && false == string.IsNullOrEmpty(session.SessionId))
+                {
+                    await _sessionManager.RemoveSesionAsync(session.SessionId);
+                }
                 tcpClient.Close();
                 Console.WriteLine($"📴 Client {clientEndPoint} disconnected");
             }
