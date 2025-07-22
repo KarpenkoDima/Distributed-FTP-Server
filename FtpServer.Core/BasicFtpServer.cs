@@ -167,11 +167,12 @@ namespace FtpServer.Core
             {
                 try
                 {
+                    Console.WriteLine($"🔍 [{session.SessionId}] Waiting for next command...");
                     var command = await session.Reader.ReadLineAsync();
 
                     if (command == null)
                     {
-                        Console.WriteLine($"🔌 Client {session.ClientEndpoint} disconnected");
+                        Console.WriteLine($"🔌 [{session.SessionId}] Client {session.ClientEndpoint} disconnected (ReadLine returned null)");
                         break;
                     }
 
@@ -191,6 +192,7 @@ namespace FtpServer.Core
                 catch (Exception ex)
                 {
                     Console.WriteLine($"❌ Error processing command for {session.ClientEndpoint}: {ex.Message}");
+                    Console.WriteLine($"❌ Stack trace: {ex.StackTrace}"); // Detail error
                     break;
                 }
             }
@@ -363,34 +365,45 @@ namespace FtpServer.Core
                 // Send response that beginning to send
                 await SendResponseAsync(session.Writer, "150", "Opening data connection for directory list");
                 Console.WriteLine($"📡 [{session.SessionId}] Waiting for data connection on port {((IPEndPoint)session.DataListener.LocalEndpoint).Port} for LIST command...");
-                // connection acceptance
-                var dataClient = await session.DataListener.AcceptTcpClientAsync();
-                Console.WriteLine($"📡 [{session.SessionId}] Data connection established for LIST");
-                using (dataClient)
+                
+                // Add timeout for Data Connection
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                try
                 {
-                    using (var dataStream = dataClient.GetStream())
-                    using (var dataWriter = new StreamWriter(dataStream, new UTF8Encoding(false)) { AutoFlush = true })
+                    // connection acceptance
+                    var dataClient = await session.DataListener.AcceptTcpClientAsync();
+                    Console.WriteLine($"📡 [{session.SessionId}] Data connection established for LIST");
+                    using (dataClient)
                     {
-                        // to listing directory
-                        var entries = Directory.GetFileSystemEntries(physicalPath);
-
-                        foreach (var entry in entries)
+                        using (var dataStream = dataClient.GetStream())
+                        using (var dataWriter = new StreamWriter(dataStream, new UTF8Encoding(false)) { AutoFlush = true })
                         {
-                            var info = new FileInfo(entry);
-                            var isDirectory = Directory.Exists(entry);
-                            var name = Path.GetFileName(entry);
-                            var size = isDirectory ? 0 : info.Length;
-                            //var modified = info.LastWriteTime.ToString("MMM dd HH:mm");
+                            // to listing directory
+                            var entries = Directory.GetFileSystemEntries(physicalPath);
 
-                            // Simple UNIX-style listing
-                            var permissions = isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
-                            var listLine = $"{permissions} 1 user group {size,10} {name}";
+                            foreach (var entry in entries)
+                            {
+                                var info = new FileInfo(entry);
+                                var isDirectory = Directory.Exists(entry);
+                                var name = Path.GetFileName(entry);
+                                var size = isDirectory ? 0 : info.Length;
+                                //var modified = info.LastWriteTime.ToString("MMM dd HH:mm");
 
-                            await dataWriter.WriteLineAsync(listLine);
-                            Console.WriteLine($"📄 [{session.SessionId}] Listed: {name} ({(isDirectory ? "DIR" : size + " bytes")})");
+                                // Simple UNIX-style listing
+                                var permissions = isDirectory ? "drwxr-xr-x" : "-rw-r--r--";
+                                var listLine = $"{permissions} 1 user group {size,10} {name}";
 
+                                await dataWriter.WriteLineAsync(listLine);
+                                Console.WriteLine($"📄 [{session.SessionId}] Listed: {name} ({(isDirectory ? "DIR" : size + " bytes")})");
+
+                            }
                         }
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"⏰ [{session.SessionId}] Data connection timeout for LIST");
+                    return new FtpResponse(425, "Data connection timeout");
                 }
                 return new FtpResponse(226, "Directory listing completed");
             }
@@ -401,7 +414,16 @@ namespace FtpServer.Core
             }
             finally
             {
-                session.DataListener?.Stop();
+                // Safe close Data Listener
+                try
+                {
+                    session.DataListener?.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Error stopping DataListener: {ex.Message}");
+                }
+
                 session.DataListener = null;
             }
         }
@@ -424,18 +446,30 @@ namespace FtpServer.Core
 
                 await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
 
-                // request data connection
-                var dataClient = await session.DataListener.AcceptTcpClientAsync();
-                Console.WriteLine($"📡 [{session.SessionId}] Data connection established for STOR {filename}");
-
-                using (dataClient)
-                using (var dataStream = dataClient.GetStream())
-                using (var fileStream = File.Create(filepath))
+                
+                // Add timeout for Data Connection
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                try
                 {
-                    await dataStream.CopyToAsync(fileStream);
-                    Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
-                }
+                    // request data connection
+                    var dataClient = await session.DataListener.AcceptTcpClientAsync();
 
+                    Console.WriteLine($"📡 [{session.SessionId}] Data connection established for STOR {filename}");
+
+                    using (dataClient)
+                    using (var dataStream = dataClient.GetStream())
+                    using (var fileStream = File.Create(filepath))
+                    {
+                        await dataStream.CopyToAsync(fileStream);
+                        Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+                    }
+
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"⏰ [{session.SessionId}] Data connection timeout for LIST");
+                    return new FtpResponse(425, "Data connection timeout");
+                }
                 return new FtpResponse(226, "Transfer completed");
 
             }
@@ -446,7 +480,16 @@ namespace FtpServer.Core
             }
             finally
             {
-                session.DataListener?.Start();
+                // Safe close Data Listener
+                try
+                {
+                    session.DataListener?.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Error stopping DataListener: {ex.Message}");
+                }
+
                 session.DataListener = null;
             }
         }
@@ -472,18 +515,27 @@ namespace FtpServer.Core
 
                 await SendResponseAsync(session.Writer, "150", $"Opening data connection for {filename}");
 
-                // request data connection
-                var dataClient = await session.DataListener.AcceptTcpClientAsync();
-                Console.WriteLine($"📡 [{session.SessionId}] Data connection established for RETR {filename}");
-
-                using (dataClient)
-                using (var dataStream = dataClient.GetStream())
-                using (var fileStream = File.OpenRead(filepath))
+                // Add timeout for Data Connection
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                try
                 {
-                    await fileStream.CopyToAsync(dataStream);
-                    Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
-                }
+                    // request data connection
+                    var dataClient = await session.DataListener.AcceptTcpClientAsync();
+                    Console.WriteLine($"📡 [{session.SessionId}] Data connection established for RETR {filename}");
 
+                    using (dataClient)
+                    using (var dataStream = dataClient.GetStream())
+                    using (var fileStream = File.OpenRead(filepath))
+                    {
+                        await fileStream.CopyToAsync(dataStream);
+                        Console.WriteLine($"💾 [{session.SessionId}] File uploaded: {filename} ({fileStream.Length} bytes)");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"⏰ [{session.SessionId}] Data connection timeout for LIST");
+                    return new FtpResponse(425, "Data connection timeout");
+                }
                 return new FtpResponse(226, "Transfer completed");
             }
             catch (Exception ex)
@@ -493,7 +545,16 @@ namespace FtpServer.Core
             }
             finally
             {
-                session.DataListener?.Stop();
+                // Safe close Data Listener
+                try
+                {
+                    session.DataListener?.Stop();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ Error stopping DataListener: {ex.Message}");
+                }
+                
                 session.DataListener = null;
             }
         }
