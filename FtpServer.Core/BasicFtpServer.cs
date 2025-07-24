@@ -297,6 +297,14 @@ namespace FtpServer.Core
                 return new FtpResponse(501, "Path required");
 
             var newPath = GetAbsolutePath(path, session.CurrentDirectory);
+
+            // Security: Check that the user does not go outside their folder
+            if (false == IsPathWithUserName(newPath, session.UserHomeDirectory))
+            {
+                Console.WriteLine($"🚫 [{session.SessionId}] Access denied: {newPath} (outside user home)");
+                return new FtpResponse(530, "Access denied: Directory outside user space");
+            }
+
             var physicalPath = MapVirtualToPhysical(newPath, session.RootDirectory);
 
             if (false == Directory.Exists(physicalPath))
@@ -307,6 +315,16 @@ namespace FtpServer.Core
             session.CurrentDirectory = newPath;
             Console.WriteLine($"📁 [{session.SessionId}] Changed directory to: {session.CurrentDirectory}");
             return new FtpResponse(250, "Directory changed successfully");
+        }
+        // For security
+        private bool IsPathWithUserName(string requestedPath, string userHome)
+        {
+            // Normalize path
+            var normalizedRequested = requestedPath.Replace("\\", "/").Trim('/');
+            var normalizedHome = userHome.Replace("\\", "/").Trim('/');
+
+            // The user must be in their folder or subfolders.
+            return normalizedRequested.StartsWith(normalizedHome, StringComparison.OrdinalIgnoreCase);
         }
 
         private FtpResponse HandleFeat()
