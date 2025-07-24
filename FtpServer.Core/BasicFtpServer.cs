@@ -61,9 +61,21 @@ namespace FtpServer.Core
 
         private void InitializeTestFiles()
         {
-            var uploadsDir = Path.Combine(_rootDirectory, "uploads");
-            var downloadsDir = Path.Combine(_rootDirectory, "downloads");
+            // Create directories for each user
+            CreateUserDirectory("demo");
+            CreateUserDirectory("admin");
+            CreateUserDirectory("test");
 
+            Console.WriteLine($"📁 FTP Root directory: {_rootDirectory}");
+        }
+
+        private void CreateUserDirectory(string username) 
+        {
+            var userDir = Path.Combine(_rootDirectory, username);
+            var uploadsDir = Path.Combine(userDir, "uploads");
+            var downloadsDir = Path.Combine(userDir, "downloads");
+
+            Directory.CreateDirectory(userDir);
             Directory.CreateDirectory(uploadsDir);
             Directory.CreateDirectory(downloadsDir);
 
