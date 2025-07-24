@@ -260,12 +260,19 @@ namespace FtpServer.Core
             if (result)
             {
                 session.IsAuthenticated = true;
-                session.CurrentDirectory = "/";
+
+                // Setting user's directory
+                session.UserHomeDirectory = "/" + session.Username; // /demo , /test
+                session.CurrentDirectory = session.UserHomeDirectory; // starting from home
+
+                // Setting chroot for security
+                session.RootDirectory = Path.Combine(_rootDirectory, session.Username);
 
                 // Save session in SessionManager (Redis in future)
                 await _sessionManager.SaveSessionAsync(session);
 
                 Console.WriteLine($"✅ [{session.SessionId}] Authentication successful for {session.Username}");
+                Console.WriteLine($"🏠 [{session.SessionId}] User home: {session.UserHomeDirectory}");
                 return new FtpResponse(230, $"Login successful");
             }
 
@@ -642,6 +649,7 @@ namespace FtpServer.Core
         public bool IsAuthenticated { get; set; }
         public string CurrentDirectory { get; set; } = "/";
         public string RootDirectory { get; set; } = "";
+        public string UserHomeDirectory { get; set; } = "/";
         public TransferType TransferType { get; set; }
 
         // Networking
