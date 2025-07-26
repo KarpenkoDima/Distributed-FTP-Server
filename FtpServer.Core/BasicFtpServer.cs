@@ -261,12 +261,12 @@ namespace FtpServer.Core
             {
                 session.IsAuthenticated = true;
 
-                // Setting user's directory
-                session.UserHomeDirectory = "/" + session.Username; // /demo , /test
-                session.CurrentDirectory = session.UserHomeDirectory; // starting from home
+                // User virtual inside in root '/'                
+                session.CurrentDirectory = "/";
 
-                // Setting chroot for security
+                // But physically, their root is their folder
                 session.RootDirectory = Path.Combine(_rootDirectory, session.Username);
+                session.UserHomeDirectory = "/"; // For user root - their home
 
                 // Save session in SessionManager (Redis in future)
                 await _sessionManager.SaveSessionAsync(session);
@@ -305,26 +305,33 @@ namespace FtpServer.Core
                 return new FtpResponse(530, "Access denied: Directory outside user space");
             }
 
-            var physicalPath = MapVirtualToPhysical(newPath, session.RootDirectory);
-
-            if (false == Directory.Exists(physicalPath))
+            try
             {
-                return new FtpResponse(550, "Directory not found");
-            }
+                var physicalPath = MapVirtualToPhysical(newPath, session.RootDirectory);
 
-            session.CurrentDirectory = newPath;
-            Console.WriteLine($"📁 [{session.SessionId}] Changed directory to: {session.CurrentDirectory}");
-            return new FtpResponse(250, "Directory changed successfully");
+                if (false == Directory.Exists(physicalPath))
+                {
+                    return new FtpResponse(550, "Directory not found");
+                }
+
+                session.CurrentDirectory = newPath;
+                Console.WriteLine($"📁 [{session.SessionId}] Changed directory to: {session.CurrentDirectory}");
+                return new FtpResponse(250, "Directory changed successfully");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Console.WriteLine($"🚫 [{session.SessionId}] Security violation: {ex.Message}");
+                return new FtpResponse(550, "Access denied");
+            }
         }
         // For security
         private bool IsPathWithUserName(string requestedPath, string userHome)
         {
-            // Normalize path
-            var normalizedRequested = requestedPath.Replace("\\", "/").Trim('/');
-            var normalizedHome = userHome.Replace("\\", "/").Trim('/');
+            // The user is isolated in their folder — they cannot go above “/”.      
+            var normalizedPath = userHome.Replace("\\", "/").Trim('/');
 
-            // The user must be in their folder or subfolders.
-            return normalizedRequested.StartsWith(normalizedHome, StringComparison.OrdinalIgnoreCase);
+            // We prohibit going above the root.
+            return true;
         }
 
         private FtpResponse HandleFeat()
@@ -625,8 +632,39 @@ namespace FtpServer.Core
 
         private string MapVirtualToPhysical(string virtualPath, string rootDir)
         {
-            var relativePath = virtualPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-            return Path.Combine(rootDir, relativePath);
+            // Normalized virtual path
+            var normalizedPath = virtualPath.Replace("\\", "/").Trim('/');
+
+            // SECURITY: Forbiden absolute path
+            if(normalizedPath.Contains(":"))
+            {
+                Console.WriteLine($"🚫 Blocked absolute path in mapping: {virtualPath}");
+                throw new UnauthorizedAccessException($"Absolute paths not allowed: {virtualPath}");
+            }
+
+            // SECURITY: We prohibit exiting via ../..
+            if(normalizedPath.Contains(".."))
+            {
+                Console.WriteLine($"🚫 Blocked parent directory in mapping: {virtualPath}");
+                throw new UnauthorizedAccessException ($"Parent directory access not allowed: {virtualPath}");
+            }
+
+            // Create safe relative path
+            var relativePath = normalizedPath.Replace('/', Path.DirectorySeparatorChar);
+            var physicalPath = Path.Combine(rootDir, relativePath);
+
+            // ADDITIONAL CHECK: the physical path must be inside rootDir
+            var fullPhysicalPath = Path.GetFullPath(physicalPath);
+            var fullRootDir = Path.GetFullPath(rootDir);
+
+            if(false ==  fullPhysicalPath.StartsWith(fullRootDir, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"🚫 Path escape attempt: {fullPhysicalPath} outside {fullRootDir}");
+                throw new UnauthorizedAccessException($"pATH OUTSIDE USER DIRECTORY {virtualPath}");
+            }
+
+            Console.WriteLine($"🔍 Path mapping: '{virtualPath}' → '{fullPhysicalPath}'");
+            return fullPhysicalPath;
         }
 
         private string GetAbsolutePath(string path, string currentDir)
