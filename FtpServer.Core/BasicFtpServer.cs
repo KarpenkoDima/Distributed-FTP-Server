@@ -61,6 +61,11 @@ namespace FtpServer.Core
 
         private void InitializeTestFiles()
         {
+            // NOW: use SHARED storage 
+            var sharedStorageRoot = @"J:\\Video\\git-repo\\SeniorNET\\shared_storage\";
+            _rootDirectory = sharedStorageRoot;
+            Console.WriteLine($"📁 Using SHARED storage: {_rootDirectory}");
+
             // Create directories for each user
             CreateUserDirectory("demo");
             CreateUserDirectory("admin");
