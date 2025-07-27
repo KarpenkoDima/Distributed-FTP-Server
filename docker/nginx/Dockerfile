@@ -7,7 +7,7 @@ COPY nginx.conf /etc/nginx/nginx.conf
 RUN mkdir -p /var/www/static
 
 # Create unprivileged user
-#RUN addgroup -g 1001 -S nginxuser && \
+# RUN addgroup -g 1001 -S nginxuser && \
 #    adduser -S -D -H -u 1001 -h /var/cache/nginx -s /sbin/nologin -G nginxuser -g
 
 # rights configuration
