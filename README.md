@@ -311,6 +311,8 @@ docker run -d \
   --name nginx-lb \
   --network ftp-network \
   -p 21:21 \
+   # если делали вариант B: docker pull nginx - указать свой конфиг
+		 # -v /path/to/your/nginx-config/nginx.conf:/etc/nginx/nginx.conf \
   nginx-ftp:docker-ready
 
 # Проверяем логи nginx
