@@ -1,4 +1,5 @@
 ﻿using FtpServer.Core.Services;
+using Microsoft.Extensions.Configuration;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,8 +24,10 @@ namespace FtpServer.Core
         private readonly IHttpClientFactory _httpClientFactory;
 
         private readonly ISessionManager _sessionManager;
-
-        public BasicFtpServer(IHttpClientFactory httpClientFactory, ISessionManager sessionManager)
+        private readonly IConfiguration _configuration;
+        public BasicFtpServer(IHttpClientFactory httpClientFactory, 
+            ISessionManager sessionManager,
+            IConfiguration configuration)
         {
             // Create root directory for FTP server
             _rootDirectory = Path.Combine(Environment.CurrentDirectory, "ftp_root");
@@ -35,6 +38,7 @@ namespace FtpServer.Core
 
             _httpClientFactory = httpClientFactory;
             _sessionManager = sessionManager;
+            _configuration = configuration;
         }
 
         public async Task<bool> GetUserByusernameAsync(string username)
@@ -371,6 +375,26 @@ namespace FtpServer.Core
                 // Close previous data vonnection if open
                 session.DataListener?.Stop();
 
+                // Get configuration for PROXY mode
+                var isBehindProxy = _configuration.GetValue<bool>("FtpBehindProxy", false);
+                var externalIp = _configuration["FtpExternalIp"] ?? "127.0.0.1";
+                var minPort = _configuration.GetValue<int>("FtpExternalMinPort", 50000);
+                var maxPort = _configuration.GetValue<int>("FtpExternalMaxPort", 50010);
+
+                int dataPort;
+
+                if (isBehindProxy)
+                {
+                    // in proxy mode use to port from range ports
+                    dataPort = GetAvailablePortRange(minPort, maxPort);
+                    Console.WriteLine($"🔄 [{session.SessionId}] Proxy mode: using port {dataPort} from range {minPort}-{maxPort}");
+                }
+                else
+                {
+                    // normal mode
+                    dataPort = 0; // system select port
+                }
+
                 // Create new listener on any port
                 session.DataListener = new TcpListener(IPAddress.Any, 0);
                 session.DataListener.Start();
@@ -378,18 +402,23 @@ namespace FtpServer.Core
                 var endPoint = (IPEndPoint)session.DataListener.LocalEndpoint;
                 var port = endPoint.Port;
 
-                // Get Server IP address (simple - localhost)
-                var serverIP = IPAddress.Loopback;
-                var ipBytes = serverIP.GetAddressBytes();
+                // Parsing external IP for PASV response
+                if (false == IPAddress.TryParse(externalIp, out var parsedIp))
+                {
+                    Console.WriteLine($"⚠️ Invalid external IP: {externalIp}, using localhost");
+                    parsedIp = IPAddress.Loopback;
+                }
 
                 // FTP PASV response format: (h1,h2,h3,h4,p1,p2)
                 // where IP = h1.h2.h3.h4, port = p1*256 + p2
                 var p1 = port / 256;
                 var p2 = port % 256;
+                var ipBytes = parsedIp.GetAddressBytes();
 
                 var pasvResponse = $"227 Entering Passive Mode ({ipBytes[0]},{ipBytes[1]},{ipBytes[2]},{ipBytes[3]},{p1},{p2})";
 
                 Console.WriteLine($"📡 [{session.SessionId}] Data connection prepared on port {port}");
+                Console.WriteLine($"📡 [{session.SessionId}] nginx will proxy this to our internal port {port}");
                 return new FtpResponse(227, pasvResponse.Substring(4)); // Remove response code
             }
             catch (Exception ex)
@@ -397,6 +426,32 @@ namespace FtpServer.Core
                 Console.WriteLine($"❌ Error setting up passive mode: {ex.Message}");
                 return new FtpResponse(425, "Can't open data connection");
             }
+        }
+
+        private int GetAvailablePortRange(int minPort, int maxPort)
+        {
+            var random = new Random();
+
+            // Try find free port random 
+            for (int attempts = 0; attempts < 20; attempts++)
+            {
+                var port = random.Next(minPort, maxPort + 1);
+                try
+                {
+                    // Verify port availability
+                    var testListener = new TcpListener(IPAddress.Any, port);
+                    testListener.Start();
+                    testListener.Start();
+                    return port; // Port is freedom
+                }
+                catch (SocketException)
+                {
+                    // Port is busy - try another
+                    continue;
+                }
+            }
+            Console.WriteLine($"⚠️ Could not find free port in range {minPort}-{maxPort}, using {minPort}");
+            return minPort;
         }
 
         private async Task<FtpResponse> HandleListAsync(FtpSession session)

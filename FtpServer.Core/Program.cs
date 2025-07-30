@@ -14,7 +14,7 @@ using StackExchange.Redis;
         // - Dependency Injection: Basic services like IConfiguration, IHostEnvironment
         var builder = Host.CreateApplicationBuilder(args);
 
-        // REMOVED: var appConfig = builder.Configuration.AddJsonFile("appsettings.json").Build();
+        //  REMOVED: var appConfig = builder.Configuration.AddJsonFile("appsettings.json").Build();
         // This line was creating a separate IConfiguration instance that didn't include environment variables.
         // We will now rely on the IConfiguration instance built by the host.
 
@@ -55,7 +55,7 @@ using StackExchange.Redis;
         // THIS IS THE CORRECT appConfig: It now contains all loaded settings, including
         // overrides from environment variables.
         var appConfig = host.Services.GetRequiredService<IConfiguration>();
-
+       
         // Step 5: Retrieve your FTP server instance from the service provider.
         var server = host.Services.GetRequiredService<BasicFtpServer>();
 
@@ -79,7 +79,7 @@ static int GetPortFromConfig(string port)
     // From configuration
     if (false == string.IsNullOrEmpty(port) && int.TryParse(port, out var configPort))
         return configPort;
-    
+
     // Default
     return 2121;
 }
