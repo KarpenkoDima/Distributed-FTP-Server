@@ -83,6 +83,7 @@ docker run -d \
   -e port=21 \
   -v /path/to/your/ftp/storage:/app/shared_storage \
   ftp-server:mvp
+
 ```
 
 ### 4. Проверка работы
