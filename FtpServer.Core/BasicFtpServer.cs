@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
@@ -30,15 +31,17 @@ namespace FtpServer.Core
             IConfiguration configuration)
         {
             // Create root directory for FTP server
-            _rootDirectory = Path.Combine(Environment.CurrentDirectory, "ftp_root");
-            Directory.CreateDirectory(_rootDirectory);
+            //_rootDirectory = Path.Combine(Environment.CurrentDirectory, "ftp_root");
+            //Directory.CreateDirectory(_rootDirectory);
 
-            // Createing guest directories and files
-            InitializeTestFiles();
+            
 
             _httpClientFactory = httpClientFactory;
             _sessionManager = sessionManager;
             _configuration = configuration;
+            
+            // Createing guest directories and files
+            InitializeTestFiles();
         }
 
         public async Task<bool> GetUserByusernameAsync(string username)
@@ -66,7 +69,7 @@ namespace FtpServer.Core
         private void InitializeTestFiles()
         {
             // NOW: use SHARED storage 
-            var sharedStorageRoot = @"J:\\Video\\git-repo\\SeniorNET\\shared_storage\";
+            var sharedStorageRoot = _configuration.GetValue<string>("SharedStoragePath", "/app/shared_storage");
             _rootDirectory = sharedStorageRoot;
             Console.WriteLine($"📁 Using SHARED storage: {_rootDirectory}");
 
@@ -378,10 +381,12 @@ namespace FtpServer.Core
                 // Get configuration for PROXY mode
                 var isBehindProxy = _configuration.GetValue<bool>("FtpBehindProxy", false);
                 var externalIp = _configuration["FtpExternalIp"] ?? "127.0.0.1";
-                var minPort = _configuration.GetValue<int>("FtpExternalMinPort", 50000);
-                var maxPort = _configuration.GetValue<int>("FtpExternalMaxPort", 50010);
+                var minPort = _configuration.GetValue<int>("FtpPasvMinPort", 50000);
+                var maxPort = _configuration.GetValue<int>("FtpPasvMaxPort", 50010);
 
-                int dataPort;
+                Console.WriteLine($"🔧 [{session.SessionId}] PASV Config: Proxy={isBehindProxy}, IP={externalIp}, Range={minPort}-{maxPort}");
+
+                int dataPort;               
 
                 if (isBehindProxy)
                 {
@@ -391,16 +396,23 @@ namespace FtpServer.Core
                 }
                 else
                 {
-                    // normal mode
-                    dataPort = 0; // system select port
+                    // in direct mode use port from range
+                    dataPort = GetAvailablePortRange(minPort, maxPort);
+                    Console.WriteLine($"🔄 [{session.SessionId}] Direct mode: using port {dataPort} from range {minPort}-{maxPort}");
                 }
 
-                // Create new listener on any port
-                session.DataListener = new TcpListener(IPAddress.Any, 0);
+                session.DataListener = new TcpListener(IPAddress.Any, dataPort);
                 session.DataListener.Start();
 
                 var endPoint = (IPEndPoint)session.DataListener.LocalEndpoint;
-                var port = endPoint.Port;
+                var actualListenerPort = endPoint.Port;
+
+                if (actualListenerPort != dataPort)
+                {
+                    Console.WriteLine($"❌ [{session.SessionId}] Port mismatch! Requested {dataPort}, got {actualListenerPort}");
+                    session.DataListener.Stop();
+                    return new FtpResponse(425, "Port allocated failed");
+                }
 
                 // Parsing external IP for PASV response
                 if (false == IPAddress.TryParse(externalIp, out var parsedIp))
@@ -411,49 +423,105 @@ namespace FtpServer.Core
 
                 // FTP PASV response format: (h1,h2,h3,h4,p1,p2)
                 // where IP = h1.h2.h3.h4, port = p1*256 + p2
-                var p1 = port / 256;
-                var p2 = port % 256;
+                var p1 = actualListenerPort / 256;
+                var p2 = actualListenerPort % 256;
                 var ipBytes = parsedIp.GetAddressBytes();
 
                 var pasvResponse = $"227 Entering Passive Mode ({ipBytes[0]},{ipBytes[1]},{ipBytes[2]},{ipBytes[3]},{p1},{p2})";
 
-                Console.WriteLine($"📡 [{session.SessionId}] Data connection prepared on port {port}");
-                Console.WriteLine($"📡 [{session.SessionId}] nginx will proxy this to our internal port {port}");
+                Console.WriteLine($"📡 [{session.SessionId}] Data connection prepared on port {actualListenerPort}");
+                Console.WriteLine($"📡 [{session.SessionId}] nginx will proxy this to our internal port {actualListenerPort}");
+
+                if (isBehindProxy)
+                {
+                    Console.WriteLine($"🔀 [{session.SessionId}] Nginx will proxy external:{actualListenerPort} -> internal:{actualListenerPort}");
+                }
+                else
+                {
+                    Console.WriteLine($"🔗 [{session.SessionId}] Direct connection expected on port {actualListenerPort}");
+                }
                 return new FtpResponse(227, pasvResponse.Substring(4)); // Remove response code
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"❌ Error setting up passive mode: {ex.Message}");
+                Console.WriteLine($"[{session.SessionId}] Stack trace {ex.StackTrace}");
                 return new FtpResponse(425, "Can't open data connection");
             }
         }
-
         private int GetAvailablePortRange(int minPort, int maxPort)
         {
-            var random = new Random();
+            Console.WriteLine($"🔍 Looking for available port in range {minPort}-{maxPort}");
 
-            // Try find free port random 
-            for (int attempts = 0; attempts < 20; attempts++)
+            var busyPorts = GetBusyPorstsInRange(minPort, maxPort);
+
+            if (busyPorts.Any())
             {
-                var port = random.Next(minPort, maxPort + 1);
-                try
+                Console.WriteLine($"📊 Busy ports in range: {string.Join(", ", busyPorts.OrderBy(p => p))}");
+            }
+
+            for (int port = minPort; port <= maxPort; port++)
+            {
+                if (false == busyPorts.Contains(port))
                 {
-                    // Verify port availability
-                    var testListener = new TcpListener(IPAddress.Any, port);
-                    testListener.Start();
-                    testListener.Start();
-                    return port; // Port is freedom
-                }
-                catch (SocketException)
-                {
-                    // Port is busy - try another
-                    continue;
+                    try
+                    {
+
+                    
+                    var testTcpListener = new TcpListener(IPAddress.Any, port);
+                    testTcpListener.Start();
+                    testTcpListener.Stop();
+                    Console.WriteLine($"✅ Found available port: {port} (sequential search)");
+                    return port;
+                    }
+                    catch (Exception)
+                    {
+                        Console.WriteLine($"Port {port} is busy");
+                    }
                 }
             }
-            Console.WriteLine($"⚠️ Could not find free port in range {minPort}-{maxPort}, using {minPort}");
-            return minPort;
+
+            /*
+             * We can go through the port range and create a TCP connection on each of them to find out if the port is free.
+             */
+
+            throw new InvalidOperationException($"No availale ports found in rrange {minPort} - {maxPort}");
         }
 
+            private HashSet<int> GetBusyPorstsInRange(int minPort, int maxPort)
+        {
+            var busyPorts = new HashSet<int>();
+
+            try
+            {
+                var ipGlobalProperties = IPGlobalProperties.GetIPGlobalProperties();
+
+                // TCP listener
+                foreach (var endPoint in ipGlobalProperties.GetActiveTcpListeners())
+                {
+                    if (endPoint.Port >=minPort && endPoint.Port <= maxPort)
+                    {
+                        busyPorts.Add(endPoint.Port);
+                        Console.WriteLine($"🔍 Found busy TCP listener: {endPoint.Port}");
+                    }
+                }
+
+                // TCP connections 
+                foreach (var conn in ipGlobalProperties.GetActiveTcpConnections())
+                {
+                    if (conn.LocalEndPoint.Port >= minPort && conn.LocalEndPoint.Port <= maxPort)
+                    {
+                        busyPorts.Add(conn.LocalEndPoint.Port);
+                        Console.WriteLine($"🔍 Found busy TCP connection: {conn.LocalEndPoint.Port}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Could not get system port information: {ex.Message}");
+            }
+            return busyPorts;
+        }
         private async Task<FtpResponse> HandleListAsync(FtpSession session)
         {
             if (false == session.IsAuthenticated)

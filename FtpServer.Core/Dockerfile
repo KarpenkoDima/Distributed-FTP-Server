@@ -1,43 +1,34 @@
 # Этап 1: Сборка приложения
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 
-# Устанавливаем рабочий каталог внутри контейнера для этапа сборки.
-# Здесь будут находиться исходные файлы.
+# Устанавливаем рабочий каталог
 WORKDIR /src
 
-# Копируем все файлы проекта из контекста сборки в рабочий каталог.
-# ПРЕДПОЛОЖЕНИЕ: Команда 'docker build' запускается из каталога, содержащего FtpServer.Core.csproj
-# (например, из 'my-repo-root/src/FtpServer.Core/', если Dockerfile находится там же).
-# В этом случае '.' относится к каталогу проекта FtpServer.Core.
+# Копируем все файлы проекта
 COPY . .
 
-# Поскольку FtpServer.Core.csproj теперь находится непосредственно в /src
-# (из-за COPY . . из каталога проекта), рабочий каталог для dotnet publish должен быть /src.
-# Удалена строка: WORKDIR FtpServer.Core
+# Публикуем КОНКРЕТНЫЙ проект FtpServer.Core
+RUN dotnet publish FtpServer.Core/FtpServer.Core.csproj -c Release -o /app
 
-# Публикуем приложение FtpServer.Core в конфигурации Release.
-# Явно указываем файл проекта, чтобы dotnet publish нашел его правильно.
-RUN dotnet publish -c Release -o /app
-
-# Этап 2: Создание конечного образа для выполнения
-# Используем образ среды выполнения .NET для консольных приложений.
-# Этот образ меньше и содержит только то, что необходимо для запуска приложения.
+# Этап 2: Создание конечного образа
 FROM mcr.microsoft.com/dotnet/runtime:8.0
 
-# Устанавливаем рабочий каталог внутри контейнера для конечного этапа
+# Создаем пользователя
+RUN addgroup --system --gid 1001 ftpuser && \
+    adduser --system --uid 1001 --ingroup ftpuser ftpuser
+
+# Устанавливаем рабочий каталог
 WORKDIR /app
 
-# Копируем опубликованные файлы приложения с этапа 'build' в каталог /app текущего этапа.
-COPY --from=build /app .
+# Копируем опубликованные файлы и сразу назначаем владельца
+COPY --from=build --chown=ftpuser:ftpuser /app .
 
-# Явно копируем appsettings.json и любые appsettings.{Environment}.json файлы
-# из исходного каталога проекта на этапе сборки в каталог /app конечного образа.
-# Поскольку FtpServer.Core.csproj был скопирован непосредственно в /src,
-# файлы appsettings также находятся в /src.
-COPY --from=build appsettings*.json .
+# Копируем appsettings.json
+COPY --from=build --chown=ftpuser:ftpuser /src/FtpServer.Core/appsettings*.json .
+
+# Переключаемся на пользователя
+USER ftpuser
 
 
-# Определяем точку входа для контейнера.
-# Эта команда будет выполнена при запуске контейнера.
-# Мы запускаем FtpServer.Core.dll с помощью команды 'dotnet'.
+# Точка входа
 ENTRYPOINT ["dotnet", "FtpServer.Core.dll"]
