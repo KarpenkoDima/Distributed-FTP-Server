@@ -219,7 +219,6 @@ docker run -d \
   -p 50000-50010:50000-50010 \
   -v ./nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf \
   nginx-ftp:production
->>>>>>> develop
 ```
 
 ### 5. Проверка развертывания
