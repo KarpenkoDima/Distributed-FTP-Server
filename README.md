@@ -1,290 +1,492 @@
-# MVP FTP Server - Single Instance
+# Distributed FTP Server - Production Ready
 
-Этот репозиторий содержит реализацию **FTP-сервера на .NET C# с фокусом на будущем масштабировании**. На данном этапе реализован и протестирован **одиночный FTP сервер** для валидации core функциональности перед переходом к распределенной архитектуре.
+Этот репозиторий содержит реализацию **масштабируемого распределенного FTP-сервера на .NET C#** с полной балансировкой нагрузки, управлением сессиями и централизованной аутентификацией.
 
-## 🎯 Текущий статус: MVP Single FTP Server ✅
+## 🎯 Текущий статус: Distributed Architecture ✅
 
 **Что работает:**
-- ✅ Основной FTP сервер с полной функциональностью
-- ✅ Docker контейнеризация
-- ✅ Пользовательская аутентификация  
-- ✅ Файловое хранилище через bind mount
-- ✅ Поддержка команд: USER, PASS, PWD, CWD, LIST, STOR, RETR, PASV
-- ✅ Passive режим для передачи файлов
-- ✅ Пользовательская изоляция (каждый пользователь в своей папке)
-- ✅ Тестирование с FileZilla
+- ✅ Nginx Load Balancer с проксированием FTP трафика
+- ✅ Несколько FTP серверов (горизонтальное масштабирование)
+- ✅ Redis для управления сессиями между серверами
+- ✅ Централизованная служба аутентификации
+- ✅ Shared storage для файлов между серверами
+- ✅ Docker networking с изоляцией сервисов
+- ✅ Production-ready конфигурация
 
-## 🧩 Компоненты
+## 🏗️ Архитектура системы
 
-### Текущие (MVP):
-* **FtpServer.Core:** Основное ядро FTP-сервера
-* **FtpServer.Auth:** Сервис аутентификации на ASP.NET Core Web API  
-* **FtpServer.Commons:** Общая библиотека классов для моделей и интерфейсов
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ВНЕШНИЙ МИР                              │
+│                  (FTP Clients)                              │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ Port 21 + 50000-50010
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 NGINX LOAD BALANCER                         │
+│              (nginx-ftp-proxy)                              │
+│         • Stream proxy для FTP                             │
+│         • Round-robin балансировка                         │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ ftp-network
+    ┌─────────────────┼─────────────────┐
+    │                 │                 │
+    ▼                 ▼                 ▼
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│FTP-SRV-1│     │FTP-SRV-2│     │FTP-SRV-3│
+│Port 21  │     │Port 21  │     │Port 21  │
+└─────────┘     └─────────┘     └─────────┘
+    │                 │                 │
+    └─────────────────┼─────────────────┘
+                      │
+                      ▼
+    ┌─────────────────────────────────┐
+    │         SHARED SERVICES         │
+    │  ┌─────────┐   ┌─────────────┐  │
+    │  │  REDIS  │   │ AUTH SERVICE│  │
+    │  │Sessions │   │   API 5160  │  │
+    │  │  6379   │   │             │  │
+    │  └─────────┘   └─────────────┘  │
+    └─────────────────────────────────┘
+                      │
+                      ▼
+           ┌─────────────────────┐
+           │   SHARED STORAGE    │
+           │   (Bind Mount)      │
+           │   /app/shared_storage│
+           └─────────────────────┘
+```
 
-### Планируемые (Distributed):
-* **nginx:** Load balancer для FTP серверов
-* **Redis:** Управление сессиями между серверами
-* **NFS/распределенная ФС:** Shared storage для файлов
+## 🧩 Компоненты системы
+
+### Производственные сервисы:
+* **nginx-ftp-proxy:** Load balancer с stream proxy для FTP
+* **ftp-server-1,2,3:** Множественные экземпляры FTP серверов
+* **redis:** Управление сессиями и состоянием
+* **auth-service:** Централизованная аутентификация
+* **shared-storage:** Общее файловое хранилище
+
+### Сетевая архитектура:
+* **ftp-network:** Изолированная Docker сеть для межсервисного общения
+* **Port mapping:** 21 (FTP control), 50000-50010 (FTP data)
+* **Service discovery:** Контейнеры общаются по именам
 
 ## 📂 Структура проекта
 
 ```
-FtpServer/
+DistributedFtpServer/
 ├── FtpServer.Core/           # Основной FTP сервер
 │   ├── BasicFtpServer.cs     # Core FTP логика
 │   ├── Program.cs            # Entry point
 │   ├── Dockerfile            # Docker образ
 │   └── appsettings.json      # Конфигурация
-├── FtpServer.Auth/           # Authentication API  
-├── FtpServer.Commons/        # Shared models/interfaces
+├── FtpServer.Auth/           # Authentication API
+│   ├── Controllers/          # API контроллеры
+│   ├── Dockerfile            # Docker образ
+│   └── appsettings.json      # Конфигурация
+├── nginx/                    # Load Balancer
+│   ├── Dockerfile            # Nginx образ
+│   └── nginx.conf            # Конфигурация проксирования
+├── redis/                    # Session Storage
+│   └── Dockerfile            # Redis образ
+├── FtpServer.Commons/        # Shared библиотеки
 └── app/
-    └── shared_storage/       # Файловое хранилище (bind mount)
-        ├── demo/             # Папка пользователя demo
-        ├── admin/            # Папка пользователя admin  
-        └── test/             # Папка пользователя test
+    └── shared_storage/       # Общее файловое хранилище
+        ├── demo/             # Пользователи
+        ├── admin/            
+        └── test/             
 ```
 
-## 🚀 Быстрый старт
+## 🚀 Развертывание системы
 
 ### Предварительные требования
-- Docker установлен
+- Docker и Docker Compose установлены
 - Порты 21 и 50000-50010 свободны
+- Минимум 2GB RAM для всех сервисов
 
-### 1. Подготовка файлового хранилища
+### 1. Создание Docker сети
 
 ```bash
-# Создайте папку для файлов на хосте
-mkdir -p /path/to/your/ftp/storage
+# Создаем изолированную сеть для всех сервисов
+docker network create ftp-network
 
-# Дайте права Docker пользователю (UID 1001)
-sudo chown -R 1001:1001 /path/to/your/ftp/storage
+# Проверяем создание
+docker network ls | grep ftp-network
 ```
 
-### 2. Сборка Docker образа
+### 2. Подготовка файлового хранилища
 
 ```bash
-# Из корневой папки проекта
-docker build -f FtpServer.Core/Dockerfile -t ftp-server:mvp .
+# Создаем общую папку для всех FTP серверов
+mkdir -p /path/to/shared/ftp/storage
+
+# Устанавливаем права для Docker пользователя
+sudo chown -R 1001:1001 /path/to/shared/ftp/storage
 ```
 
-### 3. Запуск FTP сервера
+### 3. Сборка всех образов
 
 ```bash
-# Узнайте ваш IP адрес
-curl ifconfig.me
+# Redis (сессии)
+docker build -f redis/Dockerfile -t ftp-redis:production .
 
-# Запустите контейнер (замените YOUR_HOST_IP и /path/to/your/ftp/storage)
+# Auth Service (аутентификация)  
+docker build -f FtpServer.Auth/Dockerfile -t auth-service:production .
+
+# FTP Server (основные серверы)
+docker build -f FtpServer.Core/Dockerfile -t ftp-server:production .
+
+# Nginx (load balancer)
+docker build -f nginx/Dockerfile -t nginx-ftp:production .
+```
+
+### 4. Запуск сервисов (правильная последовательность)
+
+#### Шаг 1: Redis (сессии)
+```bash
 docker run -d \
-  --name ftp-server-mvp \
+  --name redis \
+  --network ftp-network \
+  -p 6379:6379 \
+  ftp-redis:production
+```
+
+#### Шаг 2: Auth Service (аутентификация)
+```bash
+docker run -d \
+  --name auth-service \
+  --network ftp-network \
+  -p 5160:5160 \
+  -e RedisConnectionString=redis:6379 \
+  auth-service:production
+```
+
+#### Шаг 3: FTP Servers (множественные экземпляры)
+```bash
+# Узнайте ваш внешний IP
+EXTERNAL_IP=$(curl -s ifconfig.me)
+echo "External IP: $EXTERNAL_IP"
+
+# FTP Server 1
+docker run -d \
+  --name ftp-server-1 \
+  --network ftp-network \
+  -e FtpExternalIP=$EXTERNAL_IP \
+  -e FtpBehindProxy=true \
+  -e port=21 \
+  -e FtpPasvMinPort=50000 \
+  -e FtpPasvMaxPort=50010 \
+  -e RedisConnectionString=redis:6379 \
+  -e authservice=http://auth-service:5160 \
+  -v /path/to/shared/ftp/storage:/app/shared_storage \
+  ftp-server:production
+
+# FTP Server 2
+docker run -d \
+  --name ftp-server-2 \
+  --network ftp-network \
+  -e FtpExternalIP=$EXTERNAL_IP \
+  -e FtpBehindProxy=true \
+  -e port=21 \
+  -e FtpPasvMinPort=50000 \
+  -e FtpPasvMaxPort=50010 \
+  -e RedisConnectionString=redis:6379 \
+  -e authservice=http://auth-service:5160 \
+  -v /path/to/shared/ftp/storage:/app/shared_storage \
+  ftp-server:production
+
+# FTP Server 3
+docker run -d \
+  --name ftp-server-3 \
+  --network ftp-network \
+  -e FtpExternalIP=$EXTERNAL_IP \
+  -e FtpBehindProxy=true \
+  -e port=21 \
+  -e FtpPasvMinPort=50000 \
+  -e FtpPasvMaxPort=50010 \
+  -e RedisConnectionString=redis:6379 \
+  -e authservice=http://auth-service:5160 \
+  -v /path/to/shared/ftp/storage:/app/shared_storage \
+  ftp-server:production
+```
+
+#### Шаг 4: Nginx Load Balancer (финал)
+```bash
+docker run -d \
+  --name nginx-ftp-proxy \
+  --network ftp-network \
   -p 21:21 \
   -p 50000-50010:50000-50010 \
-  -e FtpExternalIP=YOUR_HOST_IP \
-  -e FtpBehindProxy=false \
-  -e port=21 \
-  -v /path/to/your/ftp/storage:/app/shared_storage \
-  ftp-server:mvp
-
+  -v ./nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf \
+  nginx-ftp:production
+>>>>>>> develop
 ```
 
-### 4. Проверка работы
+### 5. Проверка развертывания
 
 ```bash
-# Проверьте логи
-docker logs -f ftp-server-mvp
+# Проверить все контейнеры
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-# Должны увидеть:
-# 📁 Using SHARED storage: /app/shared_storage
-# 🚀 FTP Server started on port 2122
+# Проверить сеть
+docker network inspect ftp-network
+
+# Проверить логи каждого сервиса
+docker logs redis
+docker logs auth-service  
+docker logs ftp-server-1
+docker logs nginx-ftp-proxy
 ```
 
-## 🧪 Тестирование
+## 🧪 Тестирование системы
 
-### Командная строка (telnet)
+### Тест 1: Подключение через Load Balancer
 
 ```bash
-# Подключение
-telnet localhost 2122
+# Подключение к системе (nginx проксирует к одному из FTP серверов)
+telnet localhost 21
 
+# Ожидаемый результат:
+# 220 Welcome to Basic FTP Server v1.0.
+```
+
+### Тест 2: Полный workflow аутентификации
+
+```bash
 # В telnet сессии:
 USER demo
-PASS any_password
+# 331 Password required
+
+PASS anypassword  
+# 230 Login successful
+
 PWD
+# 257 "/" is current directory
+
 LIST
-QUIT
+# 150 Opening data connection for directory list
+# 226 Directory listing completed
 ```
 
-### FileZilla
+### Тест 3: FileZilla интеграция
 
 ```
-Host: localhost (или ваш IP)
-Port: 2122
-Protocol: FTP  
-User: demo (или admin, test)
+Host: localhost (или ваш внешний IP)
+Port: 21
+Protocol: FTP
+User: demo, admin, или test
 Password: любой
 Transfer mode: Passive
 ```
 
-### Тестовые пользователи
+### Тест 4: Балансировка нагрузки
 
-| Пользователь | Пароль | Описание |
-|-------------|--------|----------|
-| demo        | любой  | Тестовый пользователь |
-| admin       | любой  | Администратор |
-| test        | любой  | Тестовый пользователь |
+```bash
+# Остановите один FTP сервер
+docker stop ftp-server-1
 
-## 📁 Файловая структура
+# Система должна продолжать работать через оставшиеся серверы
+telnet localhost 21
 
-После запуска в папке хранилища автоматически создаются:
-
-```
-your_storage_folder/
-├── demo/
-│   ├── uploads/          # Папка для загрузки файлов
-│   └── downloads/        # Папка с тестовыми файлами
-│       ├── readme.txt
-│       └── sample.txt
-├── admin/
-│   ├── uploads/
-│   └── downloads/
-└── test/
-    ├── uploads/
-    └── downloads/
+# Запустите сервер обратно
+docker start ftp-server-1
 ```
 
-## ⚙️ Конфигурация
+### Тест 5: Shared Storage
+
+```bash
+# Загрузите файл через FileZilla к одному серверу
+# Подключитесь заново (nginx может направить к другому серверу)
+# Файл должен быть виден - это доказывает работу shared storage
+```
+
+## ⚙️ Конфигурация системы
 
 ### Переменные окружения
 
-| Переменная | Описание | По умолчанию |
-|------------|----------|--------------|
-| `FtpExternalIP` | Внешний IP для PASV режима | 127.0.0.1 |
-| `FtpBehindProxy` | Режим работы за прокси | false |
-| `port` | Порт FTP сервера | 2122 |
-| `FtpPasvMinPort` | Минимальный порт для данных | 50000 |
-| `FtpPasvMaxPort` | Максимальный порт для данных | 50010 |
-| `SharedStoragePath` | Путь к хранилищу файлов | /app/shared_storage |
+| Сервис | Переменная | Описание | Значение |
+|--------|------------|----------|----------|
+| FTP Server | `FtpExternalIP` | Внешний IP для PASV | Ваш public IP |
+| FTP Server | `FtpBehindProxy` | Режим за прокси | true |
+| FTP Server | `RedisConnectionString` | Подключение к Redis | redis:6379 |
+| FTP Server | `authservice` | URL Auth Service | http://auth-service:5160 |
+| Auth Service | `RedisConnectionString` | Подключение к Redis | redis:6379 |
 
+### Nginx конфигурация (nginx.conf)
 
-### appsettings.json
+```nginx
+stream {
+    upstream ftp_backend {
+        server ftp-server-1:21;
+        server ftp-server-2:21;
+        server ftp-server-3:21;
+    }
+    
+    server {
+        listen 21;
+        proxy_pass ftp_backend;
+        proxy_timeout 1s;
+        proxy_responses 1;
+    }
+}
 
-```json
-{
-  "port": 2122,
-  "authservice": "http://localhost:5160",
-  "RedisConnectionString": "localhost:6379",
-  "FtpExternalIP": "127.0.0.1",
-  "FtpBehindProxy": false,
-  "FtpPasvMinPort": 50000,
-  "FtpPasvMaxPort": 50010,
-  "SharedStoragePath": "/app/shared_storage"
+events {
+    worker_connections 1024;
 }
 ```
 
-## 🔧 Полезные команды
+## 📊 Мониторинг и логирование
 
-### Управление контейнером
+### Проверка статуса всех сервисов
 
 ```bash
-# Остановить
-docker stop ftp-server-mvp
-
-# Перезапустить  
-docker restart ftp-server-mvp
-
-# Удалить
-docker stop ftp-server-mvp && docker rm ftp-server-mvp
-
-# Логи в реальном времени
-docker logs -f ftp-server-mvp
-
-# Зайти в контейнер
-docker exec -it ftp-server-mvp bash
+# Одной командой проверить все
+for service in redis auth-service ftp-server-1 ftp-server-2 ftp-server-3 nginx-ftp-proxy; do
+  echo "=== $service ==="
+  docker logs --tail 5 $service
+done
 ```
 
-### Отладка
+### Мониторинг производительности
 
 ```bash
-# Проверить файлы в контейнере
-docker exec ftp-server-mvp ls -la /app/shared_storage
+# Статистика контейнеров
+docker stats redis auth-service ftp-server-1 ftp-server-2 ftp-server-3 nginx-ftp-proxy
 
-# Проверить файлы на хосте
-ls -la /path/to/your/ftp/storage
+# Сетевая активность
+docker exec nginx-ftp-proxy netstat -tlnp
 
-# Проверить сетевые подключения
-netstat -tlnp | grep 2122
-netstat -tlnp | grep 50000
+# Активные FTP сессии
+docker exec ftp-server-1 netstat -an | grep :21
+```
+
+### Типичные логи
+
+**Успешная балансировка:**
+```
+# nginx-ftp-proxy
+[nginx] client connected to upstream ftp-server-2:21
+
+# ftp-server-2  
+📞 New client connected: 172.18.0.5:45234
+✅ Authentication successful for demo
+```
+
+## 🔧 Масштабирование
+
+### Добавление нового FTP сервера
+
+```bash
+# Запуск FTP Server 4
+docker run -d \
+  --name ftp-server-4 \
+  --network ftp-network \
+  -e FtpExternalIP=$EXTERNAL_IP \
+  -e FtpBehindProxy=true \
+  -e port=21 \
+  -e FtpPasvMinPort=50000 \
+  -e FtpPasvMaxPort=50010 \
+  -e RedisConnectionString=redis:6379 \
+  -e authservice=http://auth-service:5160 \
+  -v /path/to/shared/ftp/storage:/app/shared_storage \
+  ftp-server:production
+
+# Обновить nginx конфигурацию
+# Добавить server ftp-server-4:21; в upstream
+# Перезагрузить nginx
+docker exec nginx-ftp-proxy nginx -s reload
+```
+
+### Вертикальное масштабирование
+
+```bash
+# Увеличить ресурсы контейнеров
+docker update --memory 2g --cpus 2 ftp-server-1
+docker update --memory 1g --cpus 1 redis
 ```
 
 ## 🐛 Устранение неполадок
 
-### Проблема: Access denied при создании папок
+### Проблема: Клиенты не могут подключиться
 
 ```bash
-# Решение: исправить права на папку хранилища
-sudo chown -R 1001:1001 /path/to/your/ftp/storage
+# Проверить nginx
+docker logs nginx-ftp-proxy
+
+# Проверить доступность upstream серверов
+docker exec nginx-ftp-proxy ping ftp-server-1
+docker exec nginx-ftp-proxy ping ftp-server-2
+
+# Проверить порты
+netstat -tlnp | grep 21
 ```
 
-### Проблема: FileZilla не может передавать файлы
+### Проблема: Нет балансировки
 
 ```bash
-# Проверьте что внешний IP правильный
-curl ifconfig.me
+# Проверить nginx конфигурацию
+docker exec nginx-ftp-proxy cat /etc/nginx/conf.d/nginx.conf
 
-# Убедитесь что порты данных открыты
-docker run ... -e FtpExternalIP=YOUR_REAL_IP ...
+# Проверить upstream серверы
+docker exec nginx-ftp-proxy nslookup ftp-server-1
 ```
 
-### Проблема: Порты заняты
+### Проблема: Сессии не сохраняются
 
 ```bash
-# Найти процессы использующие порты
-sudo netstat -tlnp | grep 21
-sudo netstat -tlnp | grep 50000
+# Проверить Redis
+docker logs redis
+docker exec redis redis-cli ping
 
-# Или использовать другие порты
-docker run ... -p 2121:21 -p 50100-50110:50000-50010 ...
+# Проверить подключение FTP серверов к Redis
+docker exec ftp-server-1 ping redis
+```
+
+## 🔒 Безопасность
+
+### Рекомендации для продакшена
+
+1. **Изолированная сеть:** Используйте custom bridge network
+2. **Firewall правила:** Ограничьте доступ к портам управления
+3. **TLS шифрование:** Добавьте FTPS поддержку
+4. **Мониторинг:** Логирование всех подключений
+5. **Backup:** Регулярное резервирование Redis и файлов
+
+### Пример firewall настройки
+
+```bash
+# Разрешить только FTP порты
+ufw allow 21
+ufw allow 50000:50010/tcp
+
+# Заблокировать прямой доступ к внутренним сервисам
+ufw deny 6379  # Redis
+ufw deny 5160  # Auth Service
 ```
 
 ## 🗺️ Roadmap
 
-### ✅ Фаза 1: MVP Single Server (текущая)
+### ✅ Фаза 1: MVP Single Server 
 - Основная FTP функциональность
 - Docker контейнеризация
-- Файловое хранилище
-- Базовая аутентификация
 
-### 🔄 Фаза 2: Distributed Architecture (в разработке)
+### ✅ Фаза 2: Distributed Architecture (текущая)
 - nginx load balancer
 - Redis session management  
 - Множественные FTP серверы
-- NFS shared storage
+- Shared storage
 
-### 🚀 Фаза 3: Production Ready
-- FTPS поддержка
-- Monitoring и логирование
-- Health checks
-- Auto-scaling
-
-## 📝 Логи и мониторинг
-
-### Типичные логи при нормальной работе:
-
-```
-📁 Using SHARED storage: /app/shared_storage
-📁 FTP Root directory: /app/shared_storage
-🚀 FTP Server started on port 21
-📞 New client connected: 172.17.0.1:54321
-👤 [abc12345] User: demo
-✅ [abc12345] Authentication successful for demo
-🔧 [abc12345] PASV Config: Proxy=false, IP=192.168.1.100, Range=50000-50010
-📡 [abc12345] Data connection prepared on port 50000
-```
+### 🚀 Фаза 3: Enterprise Ready
+- FTPS поддержка (TLS/SSL)
+- Prometheus мониторинг
+- Auto-scaling с Kubernetes
+- Distributed file system (Ceph/GlusterFS)
 
 ## 🤝 Участие в разработке
 
 1. Fork репозиторий
 2. Создайте feature branch
-3. Зафиксируйте изменения
+3. Протестируйте в distributed окружении
 4. Создайте Pull Request
 
 ## 📄 Лицензия
@@ -293,4 +495,4 @@ MIT License - см. файл LICENSE для деталей.
 
 ---
 
-**Статус проекта:** MVP Ready ✅ | **Следующий этап:** Distributed Architecture 🔄
+**Статус проекта:** Production Ready ✅ | **Архитектура:** Fully Distributed 🏗️ | **Масштабирование:** Horizontal + Vertical 📈

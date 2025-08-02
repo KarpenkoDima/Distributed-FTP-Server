@@ -39,7 +39,6 @@ namespace FtpServer.Core
             _httpClientFactory = httpClientFactory;
             _sessionManager = sessionManager;
             _configuration = configuration;
-            
             // Createing guest directories and files
             InitializeTestFiles();
         }
@@ -297,7 +296,19 @@ namespace FtpServer.Core
             if (!session.IsAuthenticated)
                 return new FtpResponse(530, "Not logged in");
 
-            return new FtpResponse(257, $"\"{session.CurrentDirectory}\" is current directory");
+            // Always return path wit start '/'
+            var currentDirectory = session.CurrentDirectory;
+            if (string.IsNullOrEmpty(currentDirectory) || currentDirectory =="")
+            {
+                currentDirectory = "/";
+            }
+
+            if (false == currentDirectory.StartsWith("/"))
+            {
+                currentDirectory = "/" + currentDirectory;
+            }
+            Console.WriteLine($"🔍 [{session.SessionId}] PWD returning: '{currentDirectory}'");
+            return new FtpResponse(257, $"\"{currentDirectory}\" is current directory");
         }
 
         private FtpResponse HandleCwd(string path, FtpSession session)
