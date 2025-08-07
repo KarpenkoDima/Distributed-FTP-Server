@@ -1,4 +1,4 @@
-# 🚀 Учебный проект: Distributed FTP Server - Enterprise Production Ready
+# 🚀 Учебный проект: Distributed FTP Server
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)](https://dotnet.microsoft.com/download/dotnet/8.0)
 [![Docker](https://img.shields.io/badge/Docker-20.10+-blue.svg)](https://www.docker.com/)
